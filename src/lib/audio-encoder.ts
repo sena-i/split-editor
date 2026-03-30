@@ -70,7 +70,7 @@ export async function sliceAndEncode(
   const end_buf = encoder.flush();
   if (end_buf.length > 0) mp3Chunks.push(new Uint8Array(end_buf));
 
-  return new Blob(mp3Chunks, { type: "audio/mp3" });
+  return new Blob(mp3Chunks as BlobPart[], { type: "audio/mp3" });
 }
 
 function floatTo16BitPCM(float32: Float32Array): Int16Array {
