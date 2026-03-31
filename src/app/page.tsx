@@ -87,9 +87,11 @@ export default function Home() {
     });
   }, [audioDuration]);
 
-  // Cut a time range out of all segments
+  // Cut a time range out of segments (fragments keep same group → export as one MP3)
   const handleCutRange = useCallback((cutStart: number, cutEnd: number) => {
     setSegments((prev) => {
+      const maxGroup = prev.reduce((m, s) => Math.max(m, s.group ?? 0), 0);
+      let nextGroup = maxGroup + 1;
       const result: Segment[] = [];
       for (const seg of prev) {
         // No overlap → keep as is
@@ -97,13 +99,15 @@ export default function Home() {
           result.push(seg);
           continue;
         }
+        // Assign a group to link the fragments (reuse existing group if any)
+        const g = seg.group ?? nextGroup++;
         // Left portion survives
         if (cutStart > seg.start + 0.1) {
-          result.push({ start: seg.start, end: cutStart });
+          result.push({ start: seg.start, end: cutStart, group: g });
         }
         // Right portion survives
         if (cutEnd < seg.end - 0.1) {
-          result.push({ start: cutEnd, end: seg.end });
+          result.push({ start: cutEnd, end: seg.end, group: g });
         }
         // If cut covers entire segment, it's removed
       }
@@ -121,9 +125,14 @@ export default function Home() {
     if (!audioBuffer || segments.length === 0) return;
     setExporting(true);
     try {
-      const { sliceAndEncode } = await import("@/lib/audio-encoder");
-      for (let i = 0; i < segments.length; i++) {
-        const blob = await sliceAndEncode(audioBuffer, segments[i].start, segments[i].end);
+      const { sliceAndEncode, sliceAndEncodeMulti } = await import("@/lib/audio-encoder");
+      // Group segments: same group → one MP3
+      const grouped = getGroupedSegments(segments);
+      for (let i = 0; i < grouped.length; i++) {
+        const ranges = grouped[i];
+        const blob = ranges.length === 1
+          ? await sliceAndEncode(audioBuffer, ranges[0].start, ranges[0].end)
+          : await sliceAndEncodeMulti(audioBuffer, ranges.map(r => ({ start: r.start, end: r.end })));
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -179,36 +188,35 @@ export default function Home() {
         </div>
       )}
 
-      {/* Segment bar */}
-      {segments.length > 0 && (
-        <div className="mb-4 flex gap-1.5 items-center flex-wrap">
-          {segments.map((s, idx) => (
-            <button key={idx}
-              onClick={() => {
-                setSelectedSegment(selectedSegment === idx ? null : idx);
-                if (wavesurferRef.current) wavesurferRef.current.play(s.start, s.end);
-              }}
-              className={`px-2 py-1 rounded text-xs transition ${
-                selectedSegment === idx ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-              }`}>
-              課題{idx + 1}
-              <span className="ml-1 opacity-60">{(s.end - s.start).toFixed(1)}s</span>
-            </button>
-          ))}
-          <div className="ml-auto flex gap-1.5">
-            {selectedSegment !== null && (
-              <button onClick={() => handleRemoveSegment(selectedSegment)}
-                className="px-2 py-1 bg-gray-800 hover:bg-red-800 rounded text-xs transition">
-                削除
+      {/* Segment bar — grouped */}
+      {segments.length > 0 && (() => {
+        const grouped = getGroupedSegments(segments);
+        return (
+          <div className="mb-4 flex gap-1.5 items-center flex-wrap">
+            {grouped.map((ranges, gi) => {
+              const totalDur = ranges.reduce((s, r) => s + (r.end - r.start), 0);
+              const hasCut = ranges.length > 1;
+              return (
+                <button key={gi}
+                  onClick={() => {
+                    if (wavesurferRef.current) wavesurferRef.current.play(ranges[0].start, ranges[ranges.length - 1].end);
+                  }}
+                  className="px-2 py-1 rounded text-xs transition bg-gray-800 text-gray-400 hover:bg-gray-700">
+                  課題{gi + 1}
+                  <span className="ml-1 opacity-60">{totalDur.toFixed(1)}s</span>
+                  {hasCut && <span className="ml-1 text-red-400" title="カット済み">*</span>}
+                </button>
+              );
+            })}
+            <div className="ml-auto flex gap-1.5">
+              <button onClick={handleExport} disabled={exporting || !audioBuffer}
+                className="px-3 py-1 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded text-xs font-medium transition">
+                {exporting ? "..." : "Export MP3"}
               </button>
-            )}
-            <button onClick={handleExport} disabled={exporting || !audioBuffer}
-              className="px-3 py-1 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded text-xs font-medium transition">
-              {exporting ? "..." : "Export MP3"}
-            </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Script panel */}
       {pairs.length > 0 && (
@@ -221,6 +229,25 @@ export default function Home() {
       )}
     </div>
   );
+}
+
+/** Group segments: same group number → one logical unit, ungrouped → each is its own unit */
+function getGroupedSegments(segments: Segment[]): Segment[][] {
+  const groups: Segment[][] = [];
+  const groupMap = new Map<number, Segment[]>();
+  for (const seg of segments) {
+    if (seg.group != null) {
+      if (!groupMap.has(seg.group)) {
+        const arr: Segment[] = [];
+        groupMap.set(seg.group, arr);
+        groups.push(arr);
+      }
+      groupMap.get(seg.group)!.push(seg);
+    } else {
+      groups.push([seg]);
+    }
+  }
+  return groups;
 }
 
 function detectSegments(pairs: AlignedPair[]): Segment[] {

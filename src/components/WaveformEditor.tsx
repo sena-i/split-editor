@@ -193,14 +193,46 @@ export default function WaveformEditor({
     const r = regionsRef.current;
     suppressUpdateRef.current = true;
     r.getRegions().forEach((reg) => { if (reg.id.startsWith("seg-")) reg.remove(); });
+    // Assign logical task numbers in timeline order
+    // Each ungrouped segment = new task number, each group = one task number
+    const segTaskNum: number[] = [];
+    const segFragLabel: string[] = [];
+    let taskNum = 0;
+    const groupToTask = new Map<number, number>();
+    const groupFragCount = new Map<number, number>();
+    for (let i = 0; i < segments.length; i++) {
+      const g = segments[i].group;
+      if (g != null) {
+        if (!groupToTask.has(g)) {
+          groupToTask.set(g, taskNum++);
+          groupFragCount.set(g, 0);
+        }
+        const fragIdx = groupFragCount.get(g)!;
+        groupFragCount.set(g, fragIdx + 1);
+        segTaskNum[i] = groupToTask.get(g)!;
+        segFragLabel[i] = String.fromCharCode(97 + fragIdx); // a, b, c...
+      } else {
+        segTaskNum[i] = taskNum++;
+        segFragLabel[i] = "";
+      }
+    }
+    // Check if groups actually have multiple fragments
+    const groupMulti = new Set<number>();
+    for (const [g, count] of groupFragCount) { if (count > 1) groupMulti.add(g); }
+
     segments.forEach((seg, i) => {
+      const gi = segTaskNum[i];
+      const colorIdx = gi % REGION_COLORS.length;
+      const suffix = seg.group != null && groupMulti.has(seg.group) ? segFragLabel[i] : "";
+      const label = `課題${gi + 1}${suffix}`;
+
       const region = r.addRegion({
         id: `seg-${i}`,
         start: seg.start, end: seg.end,
-        color: REGION_COLORS[i % REGION_COLORS.length],
+        color: REGION_COLORS[colorIdx],
         drag: false,
         resize: true,
-        content: `課題${i + 1}`,
+        content: label,
       });
       region.on("click", () => {
         selectSegRef.current?.(i);
@@ -215,7 +247,7 @@ export default function WaveformEditor({
         const idx = parseInt(region.id.replace("seg-", ""), 10);
         const segs = [...segmentsRef.current];
         if (idx >= 0 && idx < segs.length) {
-          segs[idx] = { start: snap(region.start), end: snap(region.end) };
+          segs[idx] = { ...segs[idx], start: snap(region.start), end: snap(region.end) };
           segmentsChangeRef.current(segs);
         }
       });

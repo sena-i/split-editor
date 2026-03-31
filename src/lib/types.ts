@@ -10,6 +10,7 @@ export interface AlignedPair {
 export interface Segment {
   start: number;
   end: number;
+  group?: number; // segments with same group are concatenated into one MP3 on export
 }
 
 export interface SeriesData {

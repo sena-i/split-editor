@@ -82,6 +82,65 @@ function floatTo16BitPCM(float32: Float32Array): Int16Array {
   return int16;
 }
 
+/** Encode multiple time ranges into a single MP3 (concatenated) */
+export async function sliceAndEncodeMulti(
+  audioBuffer: AudioBuffer,
+  ranges: { start: number; end: number }[],
+  fadeOutSec: number = 0.3
+): Promise<Blob> {
+  await ensureLamejs();
+  const L = (window as any).lamejs;
+  if (!L?.Mp3Encoder) throw new Error("lamejs not available");
+
+  const sampleRate = audioBuffer.sampleRate;
+  const channels = audioBuffer.numberOfChannels;
+  const encoder = new L.Mp3Encoder(channels, sampleRate, 128);
+  const mp3Chunks: Uint8Array[] = [];
+  const blockSize = 1152;
+
+  for (let ri = 0; ri < ranges.length; ri++) {
+    const { start: startSec, end: endSec } = ranges[ri];
+    const startSample = Math.floor(startSec * sampleRate);
+    const endSample = Math.min(Math.floor(endSec * sampleRate), audioBuffer.length);
+    const length = endSample - startSample;
+
+    const left = audioBuffer.getChannelData(0).slice(startSample, endSample);
+    const right = channels > 1
+      ? audioBuffer.getChannelData(1).slice(startSample, endSample)
+      : left;
+
+    // Apply fade out only on the last range
+    if (ri === ranges.length - 1) {
+      const fadeSamples = Math.floor(fadeOutSec * sampleRate);
+      const fadeStart = length - fadeSamples;
+      if (fadeStart > 0) {
+        for (let i = fadeStart; i < length; i++) {
+          const factor = 1 - (i - fadeStart) / fadeSamples;
+          left[i] *= factor;
+          if (channels > 1) right[i] *= factor;
+        }
+      }
+    }
+
+    const leftPcm = floatTo16BitPCM(left);
+    const rightPcm = floatTo16BitPCM(right);
+
+    for (let i = 0; i < leftPcm.length; i += blockSize) {
+      const leftChunk = leftPcm.subarray(i, i + blockSize);
+      const rightChunk = rightPcm.subarray(i, i + blockSize);
+      const mp3buf = channels > 1
+        ? encoder.encodeBuffer(leftChunk, rightChunk)
+        : encoder.encodeBuffer(leftChunk);
+      if (mp3buf.length > 0) mp3Chunks.push(new Uint8Array(mp3buf));
+    }
+  }
+
+  const end_buf = encoder.flush();
+  if (end_buf.length > 0) mp3Chunks.push(new Uint8Array(end_buf));
+
+  return new Blob(mp3Chunks as BlobPart[], { type: "audio/mp3" });
+}
+
 export async function exportAllSegments(
   audioBuffer: AudioBuffer,
   boundaries: number[],
