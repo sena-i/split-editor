@@ -16,6 +16,8 @@
     "@tailwindcss/postcss": "^4.2.2",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
+    "firebase": "^12.11.0",
+    "firebase-admin": "^13.7.0",
     "lamejs": "^1.2.1",
     "next": "^16.2.1",
     "postcss": "^8.5.8",

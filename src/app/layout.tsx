@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ClientProviders } from "./providers";
 
 export const metadata: Metadata = {
   title: "Split Editor",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body className="bg-gray-950 text-gray-100 min-h-screen">{children}</body>
+      <body className="bg-gray-950 text-gray-100 min-h-screen">
+        <ClientProviders>{children}</ClientProviders>
+      </body>
     </html>
   );
 }

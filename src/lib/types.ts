@@ -13,8 +13,17 @@ export interface Segment {
   group?: number; // segments with same group are concatenated into one MP3 on export
 }
 
-export interface SeriesData {
+export type SeriesStatus = "pending" | "in_progress" | "completed";
+
+export interface SeriesDoc {
   id: string;
+  title: string;
+  status: SeriesStatus;
+  assignee: string;
+  audioPath: string;
+  audioUrl: string;
   pairs: AlignedPair[];
   segments: Segment[];
+  createdAt: Date;
+  updatedAt: Date;
 }
