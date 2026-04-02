@@ -86,9 +86,18 @@ export default function WaveformEditor({
     });
 
     // Track user-drawn selections (non seg- regions)
+    // Remove tiny accidental selections (clicks) and treat as seek
     regions.on("region-created", (region) => {
       if (destroyedRef.current || suppressUpdateRef.current) return;
       if (!region.id.startsWith("seg-")) {
+        // If region is too small, it was a click — remove and seek instead
+        if (region.end - region.start < 0.1) {
+          const seekTime = region.start;
+          region.remove();
+          const dur = ws.getDuration();
+          if (dur > 0) ws.seekTo(seekTime / dur);
+          return;
+        }
         regions.getRegions().forEach((r) => {
           if (r.id !== region.id && !r.id.startsWith("seg-")) r.remove();
         });
@@ -236,6 +245,12 @@ export default function WaveformEditor({
       });
       region.on("click", () => {
         selectSegRef.current?.(i);
+        // Seek to region start
+        const ws = wavesurferRef.current;
+        if (ws) {
+          const dur = ws.getDuration();
+          if (dur > 0) ws.seekTo(seg.start / dur);
+        }
       });
       // Track drag start to prevent other regions from being affected
       region.on("update", () => {

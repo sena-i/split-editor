@@ -194,6 +194,18 @@ export default function EditPage() {
         </div>
       </div>
 
+      {/* Local audio override */}
+      <div className="mb-2">
+        <label className="text-xs text-gray-500">
+          音声を差し替え:
+          <input type="file" accept="audio/*" className="ml-2 text-xs"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) setAudioUrl(URL.createObjectURL(f));
+            }} />
+        </label>
+      </div>
+
       {/* Waveform */}
       {audioUrl && (
         <div className="mb-4">

@@ -1,7 +1,8 @@
 [
   {
-    "origin": ["https://split-editor.vercel.app", "http://localhost:3000"],
+    "origin": ["https://split-editor.vercel.app", "https://split-editor-*-sena-teradas-projects.vercel.app", "http://localhost:3000"],
     "method": ["GET", "HEAD"],
-    "maxAgeSeconds": 3600
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type", "Content-Range"]
   }
 ]
