@@ -19,6 +19,9 @@ function docToSeries(id: string, data: any): SeriesDoc {
     title: data.title ?? "",
     status: data.status ?? "pending",
     assignee: data.assignee ?? "",
+    assigneeDeadline: data.assigneeDeadline ?? "",
+    reviewer: data.reviewer ?? "",
+    reviewerDeadline: data.reviewerDeadline ?? "",
     audioPath: data.audioPath ?? "",
     audioUrl: data.audioUrl ?? "",
     pairs: data.pairs ?? [],
@@ -60,7 +63,7 @@ export async function createSeries(data: {
 
 export async function updateSeries(
   id: string,
-  data: Partial<Pick<SeriesDoc, "title" | "status" | "assignee" | "pairs" | "segments" | "audioPath" | "audioUrl">>
+  data: Partial<Pick<SeriesDoc, "title" | "status" | "assignee" | "assigneeDeadline" | "reviewer" | "reviewerDeadline" | "pairs" | "segments" | "audioPath" | "audioUrl">>
 ): Promise<void> {
   await updateDoc(doc(getDb(), COL, id), {
     ...data,

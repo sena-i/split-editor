@@ -1,23 +1,27 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAllSeries, createSeries, deleteSeries } from "@/lib/firestore";
+import { getAllSeries, createSeries, updateSeries } from "@/lib/firestore";
 import { uploadAudio } from "@/lib/storage";
-import { SeriesDoc, AlignedPair, Segment } from "@/lib/types";
+import { SeriesDoc, SeriesStatus, AlignedPair, Segment } from "@/lib/types";
 
-const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
-  pending: { text: "未着手", cls: "bg-gray-700 text-gray-300" },
-  in_progress: { text: "編集中", cls: "bg-yellow-700 text-yellow-200" },
-  completed: { text: "完了", cls: "bg-green-700 text-green-200" },
-};
+const STATUS_OPTIONS: { value: SeriesStatus; label: string; cls: string }[] = [
+  { value: "pending", label: "未着手", cls: "bg-gray-600" },
+  { value: "in_progress", label: "作業中", cls: "bg-yellow-600" },
+  { value: "completed", label: "完了", cls: "bg-green-600" },
+];
+
+const ASSIGNEES = ["", "Jun Minami", "Ayaka Yagi", "Sena"];
 
 export default function Home() {
   const { user, logout } = useAuth();
   const [seriesList, setSeriesList] = useState<SeriesDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterAssignee, setFilterAssignee] = useState<string>("all");
 
   const load = async () => {
     setLoading(true);
@@ -28,11 +32,24 @@ export default function Home() {
 
   useEffect(() => { load(); }, []);
 
+  const handleInlineUpdate = async (id: string, field: string, value: string) => {
+    await updateSeries(id, { [field]: value } as any);
+    setSeriesList((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+  };
+
+  const filtered = seriesList.filter((s) => {
+    if (filterStatus !== "all" && s.status !== filterStatus) return false;
+    if (filterAssignee !== "all" && s.assignee !== filterAssignee) return false;
+    return true;
+  });
+
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="max-w-7xl mx-auto p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold">Split Editor</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-bold">全課題一覧 <span className="text-gray-500 text-base ml-2">{filtered.length}</span></h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500">{user?.email}</span>
           <button onClick={logout}
@@ -42,49 +59,87 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Create button */}
-      <div className="mb-4">
+      {/* Filters + Create */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+          className="bg-gray-800 text-sm px-2 py-1.5 rounded border border-gray-700">
+          <option value="all">全ステータス</option>
+          {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)}
+          className="bg-gray-800 text-sm px-2 py-1.5 rounded border border-gray-700">
+          <option value="all">全担当者</option>
+          {ASSIGNEES.filter(Boolean).map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
         <button onClick={() => setShowCreate(!showCreate)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition">
-          + New Series
+          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm font-medium transition ml-auto">
+          + New
         </button>
       </div>
 
-      {/* Create form */}
-      {showCreate && (
-        <CreateForm onCreated={() => { setShowCreate(false); load(); }} />
-      )}
+      {showCreate && <CreateForm onCreated={() => { setShowCreate(false); load(); }} />}
 
-      {/* Series list */}
+      {/* Table */}
       {loading ? (
         <div className="text-gray-500 text-sm">Loading...</div>
-      ) : seriesList.length === 0 ? (
-        <div className="text-gray-500 text-sm bg-gray-900 rounded-lg p-8 text-center">
-          No series yet. Click &quot;+ New Series&quot; to create one.
-        </div>
       ) : (
-        <div className="space-y-2">
-          {seriesList.map((s) => {
-            const st = STATUS_LABEL[s.status] ?? STATUS_LABEL.pending;
-            return (
-              <Link key={s.id} href={`/edit/${s.id}`}
-                className="flex items-center gap-3 bg-gray-900 hover:bg-gray-800 rounded-lg p-4 transition">
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{s.title || "Untitled"}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {s.pairs.length} pairs / {s.segments.length} segments
-                    {s.assignee && <span className="ml-2 text-gray-400">@{s.assignee}</span>}
-                  </div>
-                </div>
-                <span className={`px-2 py-0.5 rounded text-xs font-medium ${st.cls}`}>
-                  {st.text}
-                </span>
-                <div className="text-xs text-gray-600 w-20 text-right">
-                  {s.updatedAt.toLocaleDateString("ja-JP")}
-                </div>
-              </Link>
-            );
-          })}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-800 text-gray-400 text-xs">
+                <th className="text-left py-2 px-2 w-12">No</th>
+                <th className="text-left py-2 px-2">タイトル</th>
+                <th className="text-left py-2 px-2 w-16">課題数</th>
+                <th className="text-left py-2 px-2 w-24">ステータス</th>
+                <th className="text-left py-2 px-2 w-32">担当者</th>
+                <th className="text-left py-2 px-2 w-32">担当期限</th>
+                <th className="text-left py-2 px-2 w-16">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((s) => (
+                <tr key={s.id} className="border-b border-gray-800/50 hover:bg-gray-900/50">
+                  <td className="py-2 px-2 text-gray-500">{s.id}</td>
+                  <td className="py-2 px-2">
+                    <div className="truncate max-w-xs" title={s.title}>{s.title || "Untitled"}</div>
+                  </td>
+                  <td className="py-2 px-2 text-gray-400">{s.segments.length}</td>
+                  <td className="py-2 px-2">
+                    <select
+                      value={s.status}
+                      onChange={(e) => handleInlineUpdate(s.id, "status", e.target.value)}
+                      className="bg-gray-800 text-xs px-1.5 py-1 rounded border border-gray-700 w-full"
+                    >
+                      {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </td>
+                  <td className="py-2 px-2">
+                    <select
+                      value={s.assignee}
+                      onChange={(e) => handleInlineUpdate(s.id, "assignee", e.target.value)}
+                      className="bg-gray-800 text-xs px-1.5 py-1 rounded border border-gray-700 w-full"
+                    >
+                      {ASSIGNEES.map((a) => <option key={a} value={a}>{a || "—"}</option>)}
+                    </select>
+                  </td>
+                  <td className="py-2 px-2">
+                    <input
+                      type="date"
+                      value={s.assigneeDeadline || ""}
+                      onChange={(e) => handleInlineUpdate(s.id, "assigneeDeadline", e.target.value)}
+                      className="bg-gray-800 text-xs px-1.5 py-1 rounded border border-gray-700 w-full"
+                    />
+                  </td>
+                  <td className="py-2 px-2">
+                    <Link href={`/edit/${s.id}`}
+                      className="px-2 py-1 bg-blue-700 hover:bg-blue-600 rounded text-xs font-medium transition inline-block">
+                      作業
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -107,7 +162,6 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
     }
     setUploading(true);
 
-    // Parse JSON
     const jsonText = await jsonFile.text();
     let pairs: AlignedPair[];
     try {
@@ -118,10 +172,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
       return;
     }
 
-    // Auto-detect segments
     let segments = detectSegments(pairs);
-
-    // Parse days file if provided
     if (daysFile) {
       const daysText = await daysFile.text();
       const lastEnd = pairs.length > 0 ? pairs[pairs.length - 1].end : 0;
@@ -129,7 +180,6 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
       if (parsed.length > 0) segments = parsed;
     }
 
-    // Create Firestore doc first to get ID
     const id = await createSeries({
       title,
       assignee,
@@ -139,12 +189,9 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
       segments,
     });
 
-    // Upload audio
     const { path, url } = await uploadAudio(id, audioFile, setProgress);
-
-    // Update with audio URL
-    const { updateSeries } = await import("@/lib/firestore");
-    await updateSeries(id, { audioPath: path, audioUrl: url });
+    const { updateSeries: update } = await import("@/lib/firestore");
+    await update(id, { audioPath: path, audioUrl: url });
 
     setUploading(false);
     onCreated();
@@ -183,12 +230,10 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
             className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-700 file:text-gray-200 file:cursor-pointer" />
         </label>
       </div>
-      <div className="flex items-center gap-3">
-        <button onClick={handleSubmit} disabled={uploading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm font-medium transition">
-          {uploading ? `Uploading... ${progress.toFixed(0)}%` : "Create"}
-        </button>
-      </div>
+      <button onClick={handleSubmit} disabled={uploading}
+        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm font-medium transition">
+        {uploading ? `Uploading... ${progress.toFixed(0)}%` : "Create"}
+      </button>
     </div>
   );
 }

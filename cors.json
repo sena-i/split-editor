@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["https://split-editor.vercel.app", "http://localhost:3000"],
+    "method": ["GET", "HEAD"],
+    "maxAgeSeconds": 3600
+  }
+]
