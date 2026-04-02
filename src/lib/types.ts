@@ -20,13 +20,17 @@ export interface SeriesDoc {
   title: string;
   status: SeriesStatus;
   assignee: string;
-  assigneeDeadline: string; // YYYY-MM-DD
-  reviewer: string;
-  reviewerDeadline: string; // YYYY-MM-DD
   audioPath: string;
   audioUrl: string;
   pairs: AlignedPair[];
   segments: Segment[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface AppUser {
+  uid: string;
+  email: string;
+  displayName: string;
+  lastLogin: Date;
 }

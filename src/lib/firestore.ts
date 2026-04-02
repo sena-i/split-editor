@@ -3,9 +3,10 @@ import {
   Timestamp, orderBy, query,
 } from "firebase/firestore";
 import { getDb } from "./firebase";
-import { SeriesDoc, AlignedPair, Segment } from "./types";
+import { SeriesDoc, AppUser, AlignedPair, Segment } from "./types";
 
 const COL = "series";
+const USERS_COL = "split_users";
 
 function toDate(ts: any): Date {
   if (ts instanceof Timestamp) return ts.toDate();
@@ -19,9 +20,6 @@ function docToSeries(id: string, data: any): SeriesDoc {
     title: data.title ?? "",
     status: data.status ?? "pending",
     assignee: data.assignee ?? "",
-    assigneeDeadline: data.assigneeDeadline ?? "",
-    reviewer: data.reviewer ?? "",
-    reviewerDeadline: data.reviewerDeadline ?? "",
     audioPath: data.audioPath ?? "",
     audioUrl: data.audioUrl ?? "",
     pairs: data.pairs ?? [],
@@ -30,6 +28,8 @@ function docToSeries(id: string, data: any): SeriesDoc {
     updatedAt: toDate(data.updatedAt),
   };
 }
+
+// --- Series ---
 
 export async function getAllSeries(): Promise<SeriesDoc[]> {
   const q = query(collection(getDb(), COL), orderBy("updatedAt", "desc"));
@@ -63,7 +63,7 @@ export async function createSeries(data: {
 
 export async function updateSeries(
   id: string,
-  data: Partial<Pick<SeriesDoc, "title" | "status" | "assignee" | "assigneeDeadline" | "reviewer" | "reviewerDeadline" | "pairs" | "segments" | "audioPath" | "audioUrl">>
+  data: Partial<Pick<SeriesDoc, "title" | "status" | "assignee" | "pairs" | "segments" | "audioPath" | "audioUrl">>
 ): Promise<void> {
   await updateDoc(doc(getDb(), COL, id), {
     ...data,
@@ -73,4 +73,27 @@ export async function updateSeries(
 
 export async function deleteSeries(id: string): Promise<void> {
   await deleteDoc(doc(getDb(), COL, id));
+}
+
+// --- Users ---
+
+export async function registerUser(user: { uid: string; email: string | null; displayName: string | null }): Promise<void> {
+  await setDoc(doc(getDb(), USERS_COL, user.uid), {
+    email: user.email ?? "",
+    displayName: user.displayName ?? user.email?.split("@")[0] ?? "",
+    lastLogin: Timestamp.now(),
+  }, { merge: true });
+}
+
+export async function getAllUsers(): Promise<AppUser[]> {
+  const snap = await getDocs(collection(getDb(), USERS_COL));
+  return snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      uid: d.id,
+      email: data.email ?? "",
+      displayName: data.displayName ?? "",
+      lastLogin: toDate(data.lastLogin),
+    };
+  });
 }

@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAllSeries, createSeries, updateSeries } from "@/lib/firestore";
+import { getAllSeries, createSeries, updateSeries, getAllUsers } from "@/lib/firestore";
 import { uploadAudio } from "@/lib/storage";
-import { SeriesDoc, SeriesStatus, AlignedPair, Segment } from "@/lib/types";
+import { SeriesDoc, SeriesStatus, AppUser, AlignedPair, Segment } from "@/lib/types";
 
 const STATUS_OPTIONS: { value: SeriesStatus; label: string; cls: string }[] = [
   { value: "pending", label: "未着手", cls: "bg-gray-600" },
@@ -13,11 +13,10 @@ const STATUS_OPTIONS: { value: SeriesStatus; label: string; cls: string }[] = [
   { value: "completed", label: "完了", cls: "bg-green-600" },
 ];
 
-const ASSIGNEES = ["", "Jun Minami", "Ayaka Yagi", "Sena"];
-
 export default function Home() {
   const { user, logout } = useAuth();
   const [seriesList, setSeriesList] = useState<SeriesDoc[]>([]);
+  const [users, setUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -25,8 +24,9 @@ export default function Home() {
 
   const load = async () => {
     setLoading(true);
-    const data = await getAllSeries();
+    const [data, userList] = await Promise.all([getAllSeries(), getAllUsers()]);
     setSeriesList(data);
+    setUsers(userList);
     setLoading(false);
   };
 
@@ -69,7 +69,7 @@ export default function Home() {
         <select value={filterAssignee} onChange={(e) => setFilterAssignee(e.target.value)}
           className="bg-gray-800 text-sm px-2 py-1.5 rounded border border-gray-700">
           <option value="all">全担当者</option>
-          {ASSIGNEES.filter(Boolean).map((a) => <option key={a} value={a}>{a}</option>)}
+          {users.map((u) => <option key={u.uid} value={u.displayName}>{u.displayName}</option>)}
         </select>
         <button onClick={() => setShowCreate(!showCreate)}
           className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm font-medium transition ml-auto">
@@ -92,7 +92,6 @@ export default function Home() {
                 <th className="text-left py-2 px-2 w-16">課題数</th>
                 <th className="text-left py-2 px-2 w-24">ステータス</th>
                 <th className="text-left py-2 px-2 w-32">担当者</th>
-                <th className="text-left py-2 px-2 w-32">担当期限</th>
                 <th className="text-left py-2 px-2 w-16">操作</th>
               </tr>
             </thead>
@@ -119,16 +118,9 @@ export default function Home() {
                       onChange={(e) => handleInlineUpdate(s.id, "assignee", e.target.value)}
                       className="bg-gray-800 text-xs px-1.5 py-1 rounded border border-gray-700 w-full"
                     >
-                      {ASSIGNEES.map((a) => <option key={a} value={a}>{a || "—"}</option>)}
+                      <option value="">—</option>
+                      {users.map((u) => <option key={u.uid} value={u.displayName}>{u.displayName}</option>)}
                     </select>
-                  </td>
-                  <td className="py-2 px-2">
-                    <input
-                      type="date"
-                      value={s.assigneeDeadline || ""}
-                      onChange={(e) => handleInlineUpdate(s.id, "assigneeDeadline", e.target.value)}
-                      className="bg-gray-800 text-xs px-1.5 py-1 rounded border border-gray-700 w-full"
-                    />
                   </td>
                   <td className="py-2 px-2">
                     <Link href={`/edit/${s.id}`}

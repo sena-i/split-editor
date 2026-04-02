@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { onAuthStateChanged, User } from "firebase/auth";
 import { getAuthInstance } from "@/lib/firebase";
 import { signInWithGoogle, signOut } from "@/lib/auth";
+import { registerUser } from "@/lib/firestore";
 
 interface AuthCtx {
   user: User | null;
@@ -19,9 +20,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(getAuthInstance(), (u) => {
+    const unsub = onAuthStateChanged(getAuthInstance(), async (u) => {
       setUser(u);
       setLoading(false);
+      // Register user in Firestore on login
+      if (u) {
+        try {
+          await registerUser({ uid: u.uid, email: u.email, displayName: u.displayName });
+        } catch {}
+      }
     });
     return unsub;
   }, []);
