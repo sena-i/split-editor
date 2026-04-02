@@ -156,7 +156,14 @@ export default function WaveformEditor({
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
       switch (e.code) {
-        case "Space": e.preventDefault(); ws.playPause(); break;
+        case "Space":
+          e.preventDefault();
+          if (ws.isPlaying()) {
+            ws.pause();
+          } else {
+            ws.play(ws.getCurrentTime()); // unbounded play from current position
+          }
+          break;
         case "ArrowLeft": e.preventDefault(); ws.skip(e.shiftKey ? -5 : -1); break;
         case "ArrowRight": e.preventDefault(); ws.skip(e.shiftKey ? 5 : 1); break;
         case "KeyN": e.preventDefault(); splitRef.current?.(ws.getCurrentTime()); break;
@@ -270,7 +277,20 @@ export default function WaveformEditor({
     suppressUpdateRef.current = false;
   }, [segments, duration]);
 
-  const togglePlay = () => wavesurferRef.current?.playPause();
+  const togglePlay = () => {
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+    console.log("[WS] togglePlay", { isPlaying: ws.isPlaying(), currentTime: ws.getCurrentTime(), duration: ws.getDuration() });
+    try {
+      const el = (ws as any).getMediaElement?.();
+      if (el) console.log("[WS] mediaElement", { paused: el.paused, src: el.src?.slice(0,50), readyState: el.readyState, error: el.error });
+    } catch {}
+    if (ws.isPlaying()) {
+      ws.pause();
+    } else {
+      ws.playPause();
+    }
+  };
   const handleZoom = (level: number) => { wavesurferRef.current?.zoom(level); setZoom(level); };
 
   return (
