@@ -9,6 +9,8 @@ interface Props {
   boundaries: number[];
   onPairClick: (time: number) => void;
   onPairUpdate?: (index: number, updated: AlignedPair) => void;
+  onPairAdd?: (afterIndex: number) => void;
+  onPairDelete?: (index: number) => void;
 }
 
 const REGION_COLORS = [
@@ -44,7 +46,7 @@ function getDayIndex(time: number, boundaries: number[]): number {
   return 0;
 }
 
-export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClick, onPairUpdate }: Props) {
+export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClick, onPairUpdate, onPairAdd, onPairDelete }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   const [editMode, setEditMode] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -162,25 +164,41 @@ export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClic
                   </div>
                 </div>
               ) : (
-                <div
-                  ref={isActive ? activeRef : undefined}
-                  onClick={() => onPairClick(pair.start)}
-                  onDoubleClick={() => handleDoubleClick(idx)}
-                  className={`
-                    border-l-4 pl-3 py-1.5 rounded-r transition-all
-                    ${editMode ? "cursor-text" : "cursor-pointer"}
-                    ${colorClass} ${bgClass}
-                    ${isActive ? "ring-1 ring-white/30 !bg-white/15" : "hover:bg-white/5"}
-                  `}
-                >
-                  <div className="text-xs text-gray-500 mb-0.5">
-                    {formatTime(pair.start)} - {formatTime(pair.end)}
+                <div className="group relative">
+                  <div
+                    ref={isActive ? activeRef : undefined}
+                    onClick={() => onPairClick(pair.start)}
+                    onDoubleClick={() => handleDoubleClick(idx)}
+                    className={`
+                      border-l-4 pl-3 py-1.5 rounded-r transition-all
+                      ${editMode ? "cursor-text pr-16" : "cursor-pointer"}
+                      ${colorClass} ${bgClass}
+                      ${isActive ? "ring-1 ring-white/30 !bg-white/15" : "hover:bg-white/5"}
+                    `}
+                  >
+                    <div className="text-xs text-gray-500 mb-0.5">
+                      {formatTime(pair.start)} - {formatTime(pair.end)}
+                    </div>
+                    <div className={`text-sm ${isActive ? "text-white font-medium" : "text-gray-300"}`}>
+                      {pair.en}
+                    </div>
+                    {pair.ja && (
+                      <div className="text-xs text-gray-500 mt-0.5">{pair.ja}</div>
+                    )}
                   </div>
-                  <div className={`text-sm ${isActive ? "text-white font-medium" : "text-gray-300"}`}>
-                    {pair.en}
-                  </div>
-                  {pair.ja && (
-                    <div className="text-xs text-gray-500 mt-0.5">{pair.ja}</div>
+                  {editMode && (
+                    <div className="absolute right-1 top-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onPairAdd?.(idx); }}
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-green-700 rounded text-[10px] text-gray-300 transition"
+                        title="この行の下に追加"
+                      >＋</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onPairDelete?.(idx); }}
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-red-700 rounded text-[10px] text-gray-300 transition"
+                        title="この行を削除"
+                      >✕</button>
+                    </div>
                   )}
                 </div>
               )}

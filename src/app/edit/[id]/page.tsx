@@ -79,6 +79,31 @@ export default function EditPage() {
     });
   }, []);
 
+  const handlePairAdd = useCallback((afterIndex: number) => {
+    setPairs((prev) => {
+      const ref = prev[afterIndex];
+      const newPair: AlignedPair = {
+        no: ref ? ref.no + 0.5 : prev.length + 1,
+        en: "",
+        ja: "",
+        start: ref ? ref.end : 0,
+        end: ref ? ref.end + 1 : 1,
+      };
+      const next = [...prev];
+      next.splice(afterIndex + 1, 0, newPair);
+      // Renumber
+      return next.map((p, i) => ({ ...p, no: i + 1 }));
+    });
+  }, []);
+
+  const handlePairDelete = useCallback((index: number) => {
+    setPairs((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, i) => i !== index);
+      return next.map((p, i) => ({ ...p, no: i + 1 }));
+    });
+  }, []);
+
   const handleSplitAtTime = useCallback((time: number) => {
     setSegments((prev) => {
       const idx = prev.findIndex((s) => time > s.start + 0.5 && time < s.end - 0.5);
@@ -327,6 +352,8 @@ export default function EditPage() {
           boundaries={segments.map((s) => s.start)}
           onPairClick={handlePairClick}
           onPairUpdate={handlePairUpdate}
+          onPairAdd={handlePairAdd}
+          onPairDelete={handlePairDelete}
         />
       )}
     </div>
