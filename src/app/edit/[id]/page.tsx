@@ -120,6 +120,18 @@ export default function EditPage() {
     setSelectedSegment(null);
   }, []);
 
+  const handleMergeSegment = useCallback((idx: number) => {
+    setSegments((prev) => {
+      if (idx < 0 || idx >= prev.length - 1) return prev;
+      const a = prev[idx];
+      const b = prev[idx + 1];
+      const merged: Segment = { start: a.start, end: b.end };
+      const newSegs = [...prev];
+      newSegs.splice(idx, 2, merged);
+      return newSegs;
+    });
+  }, []);
+
   const handleStatusChange = async (newStatus: SeriesStatus) => {
     setStatus(newStatus);
     if (id) await updateSeries(id, { status: newStatus });
@@ -229,28 +241,80 @@ export default function EditPage() {
       {segments.length > 0 && (() => {
         const grouped = getGroupedSegments(segments);
         return (
-          <div className="mb-4 flex gap-1.5 items-center flex-wrap">
-            {grouped.map((ranges, gi) => {
-              const totalDur = ranges.reduce((s, r) => s + (r.end - r.start), 0);
-              const hasCut = ranges.length > 1;
-              return (
-                <button key={gi}
-                  onClick={() => {
-                    if (wavesurferRef.current) wavesurferRef.current.play(ranges[0].start, ranges[ranges.length - 1].end);
-                  }}
-                  className="px-2 py-1 rounded text-xs transition bg-gray-800 text-gray-400 hover:bg-gray-700">
-                  課題{gi + 1}
-                  <span className="ml-1 opacity-60">{totalDur.toFixed(1)}s</span>
-                  {hasCut && <span className="ml-1 text-red-400" title="カット済み">*</span>}
+          <div className="mb-4 space-y-2">
+            <div className="flex gap-1.5 items-center flex-wrap">
+              {grouped.map((ranges, gi) => {
+                const totalDur = ranges.reduce((s, r) => s + (r.end - r.start), 0);
+                const hasCut = ranges.length > 1;
+                const isSelected = selectedSegment !== null &&
+                  ranges.some((_, ri) => {
+                    // Find the flat segment index for this group's ranges
+                    let flatIdx = 0;
+                    for (let g = 0; g < gi; g++) flatIdx += grouped[g].length;
+                    return selectedSegment >= flatIdx && selectedSegment < flatIdx + ranges.length;
+                  });
+                return (
+                  <button key={gi}
+                    onClick={() => {
+                      // Find first flat segment index of this group
+                      let flatIdx = 0;
+                      for (let g = 0; g < gi; g++) flatIdx += grouped[g].length;
+                      setSelectedSegment(isSelected ? null : flatIdx);
+                    }}
+                    className={`px-2 py-1 rounded text-xs transition ${
+                      isSelected ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                    }`}>
+                    課題{gi + 1}
+                    <span className="ml-1 opacity-60">{totalDur.toFixed(1)}s</span>
+                    {hasCut && <span className="ml-1 text-red-400" title="カット済み">*</span>}
+                  </button>
+                );
+              })}
+              <div className="ml-auto flex gap-1.5">
+                <button onClick={() => handleSplitAtTime(currentTime)}
+                  className="px-2 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs transition" title="現在位置で分割 (N)">
+                  ＋分割
                 </button>
-              );
-            })}
-            <div className="ml-auto flex gap-1.5">
-              <button onClick={handleExport} disabled={exporting || !audioBuffer}
-                className="px-3 py-1 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded text-xs font-medium transition">
-                {exporting ? "..." : "Export MP3"}
-              </button>
+                {selectedSegment !== null && selectedSegment < segments.length - 1 && (
+                  <button onClick={() => handleMergeSegment(selectedSegment)}
+                    className="px-2 py-1 bg-gray-800 hover:bg-yellow-800 rounded text-xs transition" title="次の課題と結合">
+                    結合→
+                  </button>
+                )}
+                {selectedSegment !== null && (
+                  <button onClick={() => handleRemoveSegment(selectedSegment)}
+                    className="px-2 py-1 bg-gray-800 hover:bg-red-800 rounded text-xs transition">
+                    ✕削除
+                  </button>
+                )}
+                <button onClick={handleExport} disabled={exporting || !audioBuffer}
+                  className="px-3 py-1 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded text-xs font-medium transition">
+                  {exporting ? "..." : "Export MP3"}
+                </button>
+              </div>
             </div>
+            {selectedSegment !== null && segments[selectedSegment] && (
+              <div className="flex items-center gap-3 bg-gray-900 rounded px-3 py-2 text-xs">
+                <span className="text-gray-400">選択中: 課題{(() => {
+                  const grouped2 = getGroupedSegments(segments);
+                  let flatIdx = 0;
+                  for (let g = 0; g < grouped2.length; g++) {
+                    if (selectedSegment >= flatIdx && selectedSegment < flatIdx + grouped2[g].length) return g + 1;
+                    flatIdx += grouped2[g].length;
+                  }
+                  return "?";
+                })()}</span>
+                <span className="text-gray-500">
+                  {fmtTime(segments[selectedSegment].start)} → {fmtTime(segments[selectedSegment].end)}
+                  <span className="text-yellow-400 ml-1">{(segments[selectedSegment].end - segments[selectedSegment].start).toFixed(1)}s</span>
+                </span>
+                <button onClick={() => {
+                  if (wavesurferRef.current) wavesurferRef.current.play(segments[selectedSegment].start, segments[selectedSegment].end);
+                }} className="px-2 py-0.5 bg-emerald-700 hover:bg-emerald-600 rounded transition">
+                  ▶ 再生
+                </button>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -267,6 +331,12 @@ export default function EditPage() {
       )}
     </div>
   );
+}
+
+function fmtTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function getGroupedSegments(segments: Segment[]): Segment[][] {
