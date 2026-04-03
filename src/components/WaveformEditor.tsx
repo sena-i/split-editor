@@ -248,14 +248,10 @@ export default function WaveformEditor({
         resize: true,
         content: label,
       });
-      region.on("click", () => {
+      region.on("click", (e: MouseEvent) => {
         selectSegRef.current?.(i);
-        // Seek to region start
-        const ws = wavesurferRef.current;
-        if (ws) {
-          const dur = ws.getDuration();
-          if (dur > 0) ws.seekTo(seg.start / dur);
-        }
+        // Let WaveSurfer handle seek to the actual click position
+        // instead of forcing seek to segment start
       });
       // Track drag start to prevent other regions from being affected
       region.on("update", () => {
