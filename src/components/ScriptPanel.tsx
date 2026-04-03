@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { AlignedPair, Segment } from "@/lib/types";
 
 interface Props {
@@ -28,15 +28,49 @@ const BG_COLORS = [
   "bg-indigo-500/10",
 ];
 
-/** Returns effective segment index: explicit assignment or time-based, -1 if excluded */
+/**
+ * Build a mapping from segment index to task number (1-based).
+ * Segments with the same group share one task number.
+ */
+function buildTaskMap(segments: Segment[]): { segToTask: number[]; taskCount: number } {
+  const segToTask: number[] = [];
+  const groupToTask = new Map<number, number>();
+  let taskNum = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const g = segments[i].group;
+    if (g != null) {
+      if (!groupToTask.has(g)) {
+        groupToTask.set(g, ++taskNum);
+      }
+      segToTask[i] = groupToTask.get(g)!;
+    } else {
+      segToTask[i] = ++taskNum;
+    }
+  }
+  return { segToTask, taskCount: taskNum };
+}
+
+/** Returns segment index containing this time, or -1 */
+function getSegIdxByTime(time: number, segments: Segment[]): number {
+  for (let i = 0; i < segments.length; i++) {
+    if (time >= segments[i].start && time < segments[i].end) return i;
+  }
+  return -1;
+}
+
+/** Returns effective segment index for a pair: explicit override or time-based */
 function getEffectiveSegIdx(pair: AlignedPair, segments: Segment[]): number {
   if (pair.assignedSegment != null && pair.assignedSegment >= -1 && pair.assignedSegment < segments.length) {
     return pair.assignedSegment;
   }
-  for (let i = 0; i < segments.length; i++) {
-    if (pair.start >= segments[i].start && pair.start < segments[i].end) return i;
-  }
-  return -1;
+  return getSegIdxByTime(pair.start, segments);
+}
+
+/** Get task number (1-based) for a pair, or 0 if excluded */
+function getPairTaskNum(pair: AlignedPair, segments: Segment[], segToTask: number[]): number {
+  const segIdx = getEffectiveSegIdx(pair, segments);
+  if (segIdx === -1) return 0;
+  return segToTask[segIdx] ?? 0;
 }
 
 export default function ScriptPanel({ pairs, currentTime, segments, onPairClick, onPairUpdate, onPairsReorder, onPairAdd, onPairDelete }: Props) {
@@ -48,6 +82,13 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [history, setHistory] = useState<AlignedPair[][]>([]);
+
+  const { segToTask, taskCount } = useMemo(() => buildTaskMap(segments), [segments]);
+
+  const includedCount = useMemo(
+    () => pairs.filter((p) => getPairTaskNum(p, segments, segToTask) > 0).length,
+    [pairs, segments, segToTask]
+  );
 
   useEffect(() => {
     if (activeRef.current && editingIdx === null) {
@@ -80,7 +121,6 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
     e.stopPropagation();
   };
 
-  // Save snapshot for undo before any edit
   const pushHistory = useCallback(() => {
     setHistory((prev) => [...prev.slice(-19), pairs]);
   }, [pairs]);
@@ -92,21 +132,29 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
     onPairsReorder?.(prev);
   }, [history, onPairsReorder]);
 
-  // Assign pair to a different segment
-  const handleAssignSegment = useCallback((idx: number, newSegIdx: number) => {
+  // Move pair to a different task number
+  const handleMoveTask = useCallback((idx: number, currentTaskNum: number, delta: number) => {
     pushHistory();
-    const clamped = Math.max(-1, Math.min(segments.length - 1, newSegIdx));
-    onPairUpdate?.(idx, { ...pairs[idx], assignedSegment: clamped });
-  }, [pairs, segments.length, onPairUpdate, pushHistory]);
+    const targetTask = currentTaskNum + delta;
+    if (targetTask < 0 || targetTask > taskCount) return;
+    if (targetTask === 0) {
+      // Exclude: assign to -1
+      onPairUpdate?.(idx, { ...pairs[idx], assignedSegment: -1 });
+      return;
+    }
+    // Find first segment index belonging to targetTask
+    const targetSegIdx = segToTask.findIndex((t) => t === targetTask);
+    if (targetSegIdx === -1) return;
+    onPairUpdate?.(idx, { ...pairs[idx], assignedSegment: targetSegIdx });
+  }, [pairs, taskCount, segToTask, onPairUpdate, pushHistory]);
 
-  // Clear explicit assignment (revert to time-based)
   const handleClearAssignment = useCallback((idx: number) => {
     pushHistory();
     const { assignedSegment: _, ...rest } = pairs[idx];
     onPairUpdate?.(idx, rest as AlignedPair);
   }, [pairs, onPairUpdate, pushHistory]);
 
-  // Drag and drop reorder
+  // Drag and drop
   const handleDragStart = (e: React.DragEvent, idx: number) => {
     setDragIdx(idx);
     e.dataTransfer.effectAllowed = "move";
@@ -153,26 +201,32 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
             <span className="text-[10px] text-gray-500">ダブルクリック: 編集 | ドラッグ: 並替 | ◀▶: 課題変更</span>
           </>
         )}
-        <button
-          onClick={() => exportText(pairs, segments)}
-          className="px-3 py-1 rounded text-xs font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700 ml-auto"
-        >
-          Export Text
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[10px] text-gray-500">
+            {includedCount}/{pairs.length}行出力
+          </span>
+          <button
+            onClick={() => exportText(pairs, segments, segToTask)}
+            className="px-3 py-1 rounded text-xs font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700"
+          >
+            Export Text
+          </button>
+        </div>
       </div>
       <div className="h-80 overflow-y-auto space-y-1 p-3 bg-gray-900 rounded-lg">
         {pairs.map((pair, idx) => {
           const isActive = idx === activePairIdx;
-          const segIdx = getEffectiveSegIdx(pair, segments);
-          const isExcluded = segIdx === -1;
+          const taskNum = getPairTaskNum(pair, segments, segToTask);
+          const isExcluded = taskNum === 0;
           const hasOverride = pair.assignedSegment != null;
-          const colorClass = isExcluded ? "border-l-gray-700" : REGION_COLORS[segIdx % REGION_COLORS.length];
-          const bgClass = isExcluded ? "bg-gray-800/30" : BG_COLORS[segIdx % BG_COLORS.length];
+          const colorIdx = isExcluded ? -1 : (taskNum - 1);
+          const colorClass = isExcluded ? "border-l-gray-700" : REGION_COLORS[colorIdx % REGION_COLORS.length];
+          const bgClass = isExcluded ? "bg-gray-800/30" : BG_COLORS[colorIdx % BG_COLORS.length];
           const isEditing = editingIdx === idx;
           const isDragOver = dragOverIdx === idx;
 
-          const prevSegIdx = idx > 0 ? getEffectiveSegIdx(pairs[idx - 1], segments) : -2;
-          const isNewDay = !isExcluded && (idx === 0 || segIdx !== prevSegIdx);
+          const prevTaskNum = idx > 0 ? getPairTaskNum(pairs[idx - 1], segments, segToTask) : -1;
+          const isNewDay = !isExcluded && (idx === 0 || taskNum !== prevTaskNum);
 
           return (
             <div
@@ -186,7 +240,7 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
             >
               {isNewDay && (
                 <div className="text-xs font-bold text-gray-400 mt-3 mb-1">
-                  --- 課題{segIdx + 1} ---
+                  --- 課題{taskNum} ---
                 </div>
               )}
               {isEditing ? (
@@ -226,7 +280,7 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                     onDoubleClick={() => handleDoubleClick(idx)}
                     className={`
                       border-l-4 pl-3 py-1.5 rounded-r transition-all
-                      ${editMode ? "cursor-grab pr-24" : "cursor-pointer"}
+                      ${editMode ? "cursor-grab pr-28" : "cursor-pointer"}
                       ${colorClass} ${bgClass}
                       ${isActive ? "ring-1 ring-white/30 !bg-white/15" : "hover:bg-white/5"}
                       ${dragIdx === idx ? "opacity-40" : ""}
@@ -249,18 +303,22 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                   </div>
                   {editMode && (
                     <div className="absolute right-1 top-1 flex items-center gap-0.5">
-                      {/* Segment assignment — always visible */}
+                      {/* Task assignment — always visible */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx - 1); }}
-                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        onClick={(e) => { e.stopPropagation(); handleMoveTask(idx, taskNum, -1); }}
+                        disabled={taskNum <= 0}
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 disabled:opacity-30 rounded text-[10px] text-gray-300 transition"
                         title="前の課題へ"
                       >◀</button>
-                      <span className="px-1 py-0.5 text-[10px] text-gray-400 min-w-[20px] text-center font-mono">
-                        {isExcluded ? "−" : segIdx + 1}
+                      <span className={`px-1 py-0.5 text-[10px] min-w-[24px] text-center font-mono ${
+                        isExcluded ? "text-gray-600" : "text-gray-300"
+                      }`}>
+                        {isExcluded ? "−" : `${taskNum}`}
                       </span>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx + 1); }}
-                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        onClick={(e) => { e.stopPropagation(); handleMoveTask(idx, taskNum, 1); }}
+                        disabled={taskNum >= taskCount}
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 disabled:opacity-30 rounded text-[10px] text-gray-300 transition"
                         title="次の課題へ"
                       >▶</button>
                       {hasOverride && (
@@ -295,20 +353,20 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
   );
 }
 
-function exportText(pairs: AlignedPair[], segments: Segment[]) {
+function exportText(pairs: AlignedPair[], segments: Segment[], segToTask: number[]) {
   const lines: string[] = [];
-  let currentSegIdx = -1;
-  let taskNum = 0;
+  let currentTask = -1;
   for (const pair of pairs) {
-    const segIdx = getEffectiveSegIdx(pair, segments);
-    if (segIdx === -1) continue;
-    if (segIdx !== currentSegIdx) {
-      if (currentSegIdx !== -1) {
+    const taskNum = getPairTaskNum(pair, segments, segToTask);
+    if (taskNum === 0) continue; // Skip excluded
+    if (taskNum !== currentTask) {
+      if (currentTask !== -1) {
         lines.push("", "", "", "", "", "", "");
       }
-      currentSegIdx = segIdx;
-      taskNum++;
-      const seg = segments[segIdx];
+      currentTask = taskNum;
+      // Find the first segment of this task for the timestamp
+      const firstSegIdx = segToTask.indexOf(taskNum);
+      const seg = segments[firstSegIdx];
       const startMin = Math.floor(seg.start / 60);
       const startSec = Math.floor(seg.start % 60);
       const timeStr = `${String(startMin).padStart(2, "0")}:${String(startSec).padStart(2, "0")}`;
