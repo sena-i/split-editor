@@ -80,40 +80,76 @@ export default function WaveformEditor({
     wavesurferRef.current = ws;
     ws.load(audioUrl);
 
-    // Enable drag selection for cut ranges
-    regions.enableDragSelection({
-      color: "rgba(239,68,68,0.25)",
-    });
+    // Manual drag selection — replaces enableDragSelection which miscalculates
+    // positions when zoomed, causing clicks to jump to wrong locations
+    let dragStartTime: number | null = null;
+    let isDragging = false;
+    let dragRegionId: string | null = null;
 
-    // Track user-drawn selections (non seg- regions)
-    // Remove tiny accidental selections (clicks) and treat as seek
-    regions.on("region-created", (region) => {
-      if (destroyedRef.current || suppressUpdateRef.current) return;
-      if (!region.id.startsWith("seg-")) {
-        // If region is too small, it was a click — just remove the accidental region
-        // WaveSurfer handles click-to-seek natively, so no manual seek needed
-        if (region.end - region.start < 0.1) {
-          region.remove();
-          return;
+    const getTimeFromMouseEvent = (e: MouseEvent): number => {
+      const wrapper = ws.getWrapper();
+      const rect = wrapper.getBoundingClientRect();
+      const x = e.clientX - rect.left + wrapper.scrollLeft;
+      const dur = ws.getDuration();
+      const totalWidth = wrapper.scrollWidth;
+      return Math.max(0, Math.min(dur, (x / totalWidth) * dur));
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      // Ignore if clicking on a region resize handle
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-resize]') || target.style.cursor === 'ew-resize') return;
+      dragStartTime = getTimeFromMouseEvent(e);
+      isDragging = false;
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (dragStartTime === null) return;
+      const t = getTimeFromMouseEvent(e);
+      if (!isDragging && Math.abs(t - dragStartTime) >= 0.1) {
+        isDragging = true;
+        // Remove previous selection regions
+        regions.getRegions().forEach((r) => { if (!r.id.startsWith("seg-")) r.remove(); });
+      }
+      if (isDragging) {
+        const start = Math.min(dragStartTime, t);
+        const end = Math.max(dragStartTime, t);
+        // Update or create the drag region
+        if (dragRegionId) {
+          const existing = regions.getRegions().find((r) => r.id === dragRegionId);
+          if (existing) existing.remove();
         }
-        regions.getRegions().forEach((r) => {
-          if (r.id !== region.id && !r.id.startsWith("seg-")) r.remove();
+        const region = regions.addRegion({
+          start, end,
+          color: "rgba(239,68,68,0.25)",
+          drag: false, resize: false,
         });
-        const sel = { start: region.start, end: region.end };
-        selectionRef.current = sel;
-        setSelection(sel);
+        dragRegionId = region.id;
       }
-    });
+    };
 
-    // Handle non-segment region updates (drag selection)
-    regions.on("region-updated", (region) => {
-      if (destroyedRef.current || suppressUpdateRef.current) return;
-      if (!region.id.startsWith("seg-")) {
-        const sel = { start: region.start, end: region.end };
-        selectionRef.current = sel;
-        setSelection(sel);
+    const onMouseUp = (e: MouseEvent) => {
+      if (dragStartTime === null) return;
+      if (isDragging) {
+        const t = getTimeFromMouseEvent(e);
+        const start = Math.min(dragStartTime, t);
+        const end = Math.max(dragStartTime, t);
+        if (end - start >= 0.1) {
+          const sel = { start, end };
+          selectionRef.current = sel;
+          setSelection(sel);
+        }
       }
-    });
+      dragStartTime = null;
+      isDragging = false;
+      dragRegionId = null;
+    };
+
+    const wrapper = ws.getWrapper();
+    wrapper.addEventListener("mousedown", onMouseDown);
+    wrapper.addEventListener("mousemove", onMouseMove);
+    wrapper.addEventListener("mouseup", onMouseUp);
 
     ws.on("ready", () => {
       if (destroyedRef.current) return;
@@ -194,6 +230,9 @@ export default function WaveformEditor({
       destroyedRef.current = true;
       container?.removeEventListener("wheel", handleWheel);
       document.removeEventListener("keydown", handleKey);
+      wrapper.removeEventListener("mousedown", onMouseDown);
+      wrapper.removeEventListener("mousemove", onMouseMove);
+      wrapper.removeEventListener("mouseup", onMouseUp);
       ws.destroy();
       wavesurferRef.current = null;
     };
@@ -248,10 +287,8 @@ export default function WaveformEditor({
         resize: true,
         content: label,
       });
-      region.on("click", (e: MouseEvent) => {
+      region.on("click", () => {
         selectSegRef.current?.(i);
-        // Let WaveSurfer handle seek to the actual click position
-        // instead of forcing seek to segment start
       });
       // Track drag start to prevent other regions from being affected
       region.on("update", () => {
