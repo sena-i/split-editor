@@ -90,12 +90,10 @@ export default function WaveformEditor({
     regions.on("region-created", (region) => {
       if (destroyedRef.current || suppressUpdateRef.current) return;
       if (!region.id.startsWith("seg-")) {
-        // If region is too small, it was a click — remove and seek instead
+        // If region is too small, it was a click — just remove the accidental region
+        // WaveSurfer handles click-to-seek natively, so no manual seek needed
         if (region.end - region.start < 0.1) {
-          const seekTime = region.start;
           region.remove();
-          const dur = ws.getDuration();
-          if (dur > 0) ws.seekTo(seekTime / dur);
           return;
         }
         regions.getRegions().forEach((r) => {
