@@ -47,6 +47,7 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
   const [editJa, setEditJa] = useState("");
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [history, setHistory] = useState<AlignedPair[][]>([]);
 
   useEffect(() => {
     if (activeRef.current && editingIdx === null) {
@@ -79,17 +80,31 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
     e.stopPropagation();
   };
 
+  // Save snapshot for undo before any edit
+  const pushHistory = useCallback(() => {
+    setHistory((prev) => [...prev.slice(-19), pairs]);
+  }, [pairs]);
+
+  const handleUndo = useCallback(() => {
+    if (history.length === 0) return;
+    const prev = history[history.length - 1];
+    setHistory((h) => h.slice(0, -1));
+    onPairsReorder?.(prev);
+  }, [history, onPairsReorder]);
+
   // Assign pair to a different segment
   const handleAssignSegment = useCallback((idx: number, newSegIdx: number) => {
+    pushHistory();
     const clamped = Math.max(-1, Math.min(segments.length - 1, newSegIdx));
     onPairUpdate?.(idx, { ...pairs[idx], assignedSegment: clamped });
-  }, [pairs, segments.length, onPairUpdate]);
+  }, [pairs, segments.length, onPairUpdate, pushHistory]);
 
   // Clear explicit assignment (revert to time-based)
   const handleClearAssignment = useCallback((idx: number) => {
+    pushHistory();
     const { assignedSegment: _, ...rest } = pairs[idx];
     onPairUpdate?.(idx, rest as AlignedPair);
-  }, [pairs, onPairUpdate]);
+  }, [pairs, onPairUpdate, pushHistory]);
 
   // Drag and drop reorder
   const handleDragStart = (e: React.DragEvent, idx: number) => {
@@ -104,6 +119,7 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
   const handleDrop = (e: React.DragEvent, targetIdx: number) => {
     e.preventDefault();
     if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); setDragOverIdx(null); return; }
+    pushHistory();
     const newPairs = [...pairs];
     const [moved] = newPairs.splice(dragIdx, 1);
     newPairs.splice(targetIdx, 0, moved);
@@ -125,7 +141,17 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
           {editMode ? "Edit ON" : "Script Edit"}
         </button>
         {editMode && (
-          <span className="text-[10px] text-gray-500">ダブルクリックで編集 | ドラッグで並替 | ◀▶で課題変更</span>
+          <>
+            <button
+              onClick={handleUndo}
+              disabled={history.length === 0}
+              className="px-2 py-1 rounded text-xs font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="元に戻す (Undo)"
+            >
+              ↩ 戻る
+            </button>
+            <span className="text-[10px] text-gray-500">ダブルクリック: 編集 | ドラッグ: 並替 | ◀▶: 課題変更</span>
+          </>
         )}
         <button
           onClick={() => exportText(pairs, segments)}
@@ -222,19 +248,19 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                     )}
                   </div>
                   {editMode && (
-                    <div className="absolute right-1 top-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Segment assignment */}
+                    <div className="absolute right-1 top-1 flex items-center gap-0.5">
+                      {/* Segment assignment — always visible */}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx - 1); }}
-                        className="px-1 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
                         title="前の課題へ"
                       >◀</button>
-                      <span className="px-1 py-0.5 text-[10px] text-gray-400 min-w-[20px] text-center">
+                      <span className="px-1 py-0.5 text-[10px] text-gray-400 min-w-[20px] text-center font-mono">
                         {isExcluded ? "−" : segIdx + 1}
                       </span>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx + 1); }}
-                        className="px-1 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
                         title="次の課題へ"
                       >▶</button>
                       {hasOverride && (
@@ -244,17 +270,19 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                           title="自動割当に戻す"
                         >↺</button>
                       )}
-                      <span className="w-px bg-gray-600 mx-0.5" />
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onPairAdd?.(idx); }}
-                        className="px-1 py-0.5 bg-gray-700 hover:bg-green-700 rounded text-[10px] text-gray-300 transition"
-                        title="この行の下に追加"
-                      >＋</button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onPairDelete?.(idx); }}
-                        className="px-1 py-0.5 bg-gray-700 hover:bg-red-700 rounded text-[10px] text-gray-300 transition"
-                        title="この行を削除"
-                      >✕</button>
+                      {/* Add/Delete — hover only */}
+                      <div className="flex gap-0.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); pushHistory(); onPairAdd?.(idx); }}
+                          className="px-1 py-0.5 bg-gray-700 hover:bg-green-700 rounded text-[10px] text-gray-300 transition"
+                          title="この行の下に追加"
+                        >＋</button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); pushHistory(); onPairDelete?.(idx); }}
+                          className="px-1 py-0.5 bg-gray-700 hover:bg-red-700 rounded text-[10px] text-gray-300 transition"
+                          title="この行を削除"
+                        >✕</button>
+                      </div>
                     </div>
                   )}
                 </div>
