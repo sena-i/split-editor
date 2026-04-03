@@ -5,6 +5,7 @@ export interface AlignedPair {
   start: number;
   end: number;
   is_question?: boolean;
+  assignedSegment?: number; // explicit segment index override (0-based)
 }
 
 export interface Segment {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { AlignedPair, Segment } from "@/lib/types";
 
 interface Props {
@@ -9,50 +9,44 @@ interface Props {
   segments: Segment[];
   onPairClick: (time: number) => void;
   onPairUpdate?: (index: number, updated: AlignedPair) => void;
+  onPairsReorder?: (pairs: AlignedPair[]) => void;
   onPairAdd?: (afterIndex: number) => void;
   onPairDelete?: (index: number) => void;
 }
 
 const REGION_COLORS = [
-  "border-l-blue-500",
-  "border-l-emerald-500",
-  "border-l-amber-500",
-  "border-l-rose-500",
-  "border-l-purple-500",
-  "border-l-cyan-500",
-  "border-l-orange-500",
-  "border-l-teal-500",
-  "border-l-pink-500",
+  "border-l-blue-500", "border-l-emerald-500", "border-l-amber-500",
+  "border-l-rose-500", "border-l-purple-500", "border-l-cyan-500",
+  "border-l-orange-500", "border-l-teal-500", "border-l-pink-500",
   "border-l-indigo-500",
 ];
 
 const BG_COLORS = [
-  "bg-blue-500/10",
-  "bg-emerald-500/10",
-  "bg-amber-500/10",
-  "bg-rose-500/10",
-  "bg-purple-500/10",
-  "bg-cyan-500/10",
-  "bg-orange-500/10",
-  "bg-teal-500/10",
-  "bg-pink-500/10",
+  "bg-blue-500/10", "bg-emerald-500/10", "bg-amber-500/10",
+  "bg-rose-500/10", "bg-purple-500/10", "bg-cyan-500/10",
+  "bg-orange-500/10", "bg-teal-500/10", "bg-pink-500/10",
   "bg-indigo-500/10",
 ];
 
-/** Returns segment index that contains this time, or -1 if outside all segments */
-function getSegmentIndex(time: number, segments: Segment[]): number {
+/** Returns effective segment index: explicit assignment or time-based, -1 if excluded */
+function getEffectiveSegIdx(pair: AlignedPair, segments: Segment[]): number {
+  if (pair.assignedSegment != null && pair.assignedSegment >= -1 && pair.assignedSegment < segments.length) {
+    return pair.assignedSegment;
+  }
   for (let i = 0; i < segments.length; i++) {
-    if (time >= segments[i].start && time < segments[i].end) return i;
+    if (pair.start >= segments[i].start && pair.start < segments[i].end) return i;
   }
   return -1;
 }
 
-export default function ScriptPanel({ pairs, currentTime, segments, onPairClick, onPairUpdate, onPairAdd, onPairDelete }: Props) {
+export default function ScriptPanel({ pairs, currentTime, segments, onPairClick, onPairUpdate, onPairsReorder, onPairAdd, onPairDelete }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   const [editMode, setEditMode] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [editEn, setEditEn] = useState("");
   const [editJa, setEditJa] = useState("");
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (activeRef.current && editingIdx === null) {
@@ -77,21 +71,47 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
     setEditingIdx(null);
   };
 
-  const handleCancel = () => {
-    setEditingIdx(null);
-  };
+  const handleCancel = () => setEditingIdx(null);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSave();
-    }
-    if (e.key === "Escape") {
-      handleCancel();
-    }
-    // Stop propagation so waveform shortcuts don't fire
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSave(); }
+    if (e.key === "Escape") handleCancel();
     e.stopPropagation();
   };
+
+  // Assign pair to a different segment
+  const handleAssignSegment = useCallback((idx: number, newSegIdx: number) => {
+    const clamped = Math.max(-1, Math.min(segments.length - 1, newSegIdx));
+    onPairUpdate?.(idx, { ...pairs[idx], assignedSegment: clamped });
+  }, [pairs, segments.length, onPairUpdate]);
+
+  // Clear explicit assignment (revert to time-based)
+  const handleClearAssignment = useCallback((idx: number) => {
+    const { assignedSegment: _, ...rest } = pairs[idx];
+    onPairUpdate?.(idx, rest as AlignedPair);
+  }, [pairs, onPairUpdate]);
+
+  // Drag and drop reorder
+  const handleDragStart = (e: React.DragEvent, idx: number) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIdx(idx);
+  };
+  const handleDrop = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); setDragOverIdx(null); return; }
+    const newPairs = [...pairs];
+    const [moved] = newPairs.splice(dragIdx, 1);
+    newPairs.splice(targetIdx, 0, moved);
+    onPairsReorder?.(newPairs.map((p, i) => ({ ...p, no: i + 1 })));
+    setDragIdx(null);
+    setDragOverIdx(null);
+  };
+  const handleDragEnd = () => { setDragIdx(null); setDragOverIdx(null); };
 
   return (
     <div>
@@ -105,7 +125,7 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
           {editMode ? "Edit ON" : "Script Edit"}
         </button>
         {editMode && (
-          <span className="text-[10px] text-gray-500">Double-click to edit</span>
+          <span className="text-[10px] text-gray-500">ダブルクリックで編集 | ドラッグで並替 | ◀▶で課題変更</span>
         )}
         <button
           onClick={() => exportText(pairs, segments)}
@@ -117,17 +137,27 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
       <div className="h-80 overflow-y-auto space-y-1 p-3 bg-gray-900 rounded-lg">
         {pairs.map((pair, idx) => {
           const isActive = idx === activePairIdx;
-          const segIdx = getSegmentIndex(pair.start, segments);
+          const segIdx = getEffectiveSegIdx(pair, segments);
           const isExcluded = segIdx === -1;
+          const hasOverride = pair.assignedSegment != null;
           const colorClass = isExcluded ? "border-l-gray-700" : REGION_COLORS[segIdx % REGION_COLORS.length];
           const bgClass = isExcluded ? "bg-gray-800/30" : BG_COLORS[segIdx % BG_COLORS.length];
           const isEditing = editingIdx === idx;
+          const isDragOver = dragOverIdx === idx;
 
-          const prevSegIdx = idx > 0 ? getSegmentIndex(pairs[idx - 1].start, segments) : -2;
+          const prevSegIdx = idx > 0 ? getEffectiveSegIdx(pairs[idx - 1], segments) : -2;
           const isNewDay = !isExcluded && (idx === 0 || segIdx !== prevSegIdx);
 
           return (
-            <div key={pair.no}>
+            <div
+              key={`${pair.no}-${idx}`}
+              draggable={editMode && !isEditing}
+              onDragStart={(e) => handleDragStart(e, idx)}
+              onDragOver={(e) => handleDragOver(e, idx)}
+              onDrop={(e) => handleDrop(e, idx)}
+              onDragEnd={handleDragEnd}
+              className={isDragOver && editMode ? "border-t-2 border-yellow-400" : ""}
+            >
               {isNewDay && (
                 <div className="text-xs font-bold text-gray-400 mt-3 mb-1">
                   --- 課題{segIdx + 1} ---
@@ -157,13 +187,9 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                   />
                   <div className="flex gap-1">
                     <button onClick={handleSave}
-                      className="px-2 py-0.5 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition">
-                      Save
-                    </button>
+                      className="px-2 py-0.5 bg-yellow-600 hover:bg-yellow-500 rounded text-xs transition">Save</button>
                     <button onClick={handleCancel}
-                      className="px-2 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition">
-                      Cancel
-                    </button>
+                      className="px-2 py-0.5 bg-gray-700 hover:bg-gray-600 rounded text-xs transition">Cancel</button>
                   </div>
                 </div>
               ) : (
@@ -174,14 +200,16 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                     onDoubleClick={() => handleDoubleClick(idx)}
                     className={`
                       border-l-4 pl-3 py-1.5 rounded-r transition-all
-                      ${editMode ? "cursor-text pr-16" : "cursor-pointer"}
+                      ${editMode ? "cursor-grab pr-24" : "cursor-pointer"}
                       ${colorClass} ${bgClass}
                       ${isActive ? "ring-1 ring-white/30 !bg-white/15" : "hover:bg-white/5"}
+                      ${dragIdx === idx ? "opacity-40" : ""}
                     `}
                   >
                     <div className="text-xs text-gray-500 mb-0.5">
                       {formatTime(pair.start)} - {formatTime(pair.end)}
                       {isExcluded && <span className="ml-1 text-gray-600">(除外)</span>}
+                      {hasOverride && !isExcluded && <span className="ml-1 text-yellow-600">(手動)</span>}
                     </div>
                     <div className={`text-sm ${
                       isExcluded ? "text-gray-600 line-through" :
@@ -194,15 +222,37 @@ export default function ScriptPanel({ pairs, currentTime, segments, onPairClick,
                     )}
                   </div>
                   {editMode && (
-                    <div className="absolute right-1 top-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute right-1 top-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Segment assignment */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx - 1); }}
+                        className="px-1 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        title="前の課題へ"
+                      >◀</button>
+                      <span className="px-1 py-0.5 text-[10px] text-gray-400 min-w-[20px] text-center">
+                        {isExcluded ? "−" : segIdx + 1}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleAssignSegment(idx, segIdx + 1); }}
+                        className="px-1 py-0.5 bg-gray-700 hover:bg-blue-700 rounded text-[10px] text-gray-300 transition"
+                        title="次の課題へ"
+                      >▶</button>
+                      {hasOverride && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleClearAssignment(idx); }}
+                          className="px-1 py-0.5 bg-gray-700 hover:bg-orange-700 rounded text-[10px] text-yellow-400 transition"
+                          title="自動割当に戻す"
+                        >↺</button>
+                      )}
+                      <span className="w-px bg-gray-600 mx-0.5" />
                       <button
                         onClick={(e) => { e.stopPropagation(); onPairAdd?.(idx); }}
-                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-green-700 rounded text-[10px] text-gray-300 transition"
+                        className="px-1 py-0.5 bg-gray-700 hover:bg-green-700 rounded text-[10px] text-gray-300 transition"
                         title="この行の下に追加"
                       >＋</button>
                       <button
                         onClick={(e) => { e.stopPropagation(); onPairDelete?.(idx); }}
-                        className="px-1.5 py-0.5 bg-gray-700 hover:bg-red-700 rounded text-[10px] text-gray-300 transition"
+                        className="px-1 py-0.5 bg-gray-700 hover:bg-red-700 rounded text-[10px] text-gray-300 transition"
                         title="この行を削除"
                       >✕</button>
                     </div>
@@ -222,8 +272,8 @@ function exportText(pairs: AlignedPair[], segments: Segment[]) {
   let currentSegIdx = -1;
   let taskNum = 0;
   for (const pair of pairs) {
-    const segIdx = getSegmentIndex(pair.start, segments);
-    if (segIdx === -1) continue; // Skip excluded pairs
+    const segIdx = getEffectiveSegIdx(pair, segments);
+    if (segIdx === -1) continue;
     if (segIdx !== currentSegIdx) {
       if (currentSegIdx !== -1) {
         lines.push("", "", "", "", "", "", "");

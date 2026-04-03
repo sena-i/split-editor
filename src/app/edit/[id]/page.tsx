@@ -104,6 +104,10 @@ export default function EditPage() {
     });
   }, []);
 
+  const handlePairsReorder = useCallback((newPairs: AlignedPair[]) => {
+    setPairs(newPairs);
+  }, []);
+
   const handleSplitAtTime = useCallback((time: number) => {
     setSegments((prev) => {
       const idx = prev.findIndex((s) => time > s.start + 0.5 && time < s.end - 0.5);
@@ -352,6 +356,7 @@ export default function EditPage() {
           segments={segments}
           onPairClick={handlePairClick}
           onPairUpdate={handlePairUpdate}
+          onPairsReorder={handlePairsReorder}
           onPairAdd={handlePairAdd}
           onPairDelete={handlePairDelete}
         />
