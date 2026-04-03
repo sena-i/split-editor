@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import WaveSurfer from "wavesurfer.js";
 import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.esm.js";
 import MinimapPlugin from "wavesurfer.js/dist/plugins/minimap.esm.js";
-import { AlignedPair, Segment } from "@/lib/types";
+import { Segment } from "@/lib/types";
 
 const SNAP = 0.15;
 const snap = (t: number) => Math.round(t / SNAP) * SNAP;
@@ -18,7 +18,6 @@ const REGION_COLORS = [
 
 interface Props {
   audioUrl: string;
-  pairs: AlignedPair[];
   segments: Segment[];
   onSegmentsChange: (segs: Segment[]) => void;
   onSplitAtTime?: (time: number) => void;
@@ -30,8 +29,8 @@ interface Props {
   wavesurferRef: React.MutableRefObject<WaveSurfer | null>;
 }
 
-export default function WaveformEditor({
-  audioUrl, pairs, segments, onSegmentsChange, onSplitAtTime, onSelectSegment, onCutRange, onTimeUpdate, onReady, onAudioBuffer, wavesurferRef,
+export default memo(function WaveformEditor({
+  audioUrl, segments, onSegmentsChange, onSplitAtTime, onSelectSegment, onCutRange, onTimeUpdate, onReady, onAudioBuffer, wavesurferRef,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const regionsRef = useRef<RegionsPlugin | null>(null);
@@ -379,7 +378,7 @@ export default function WaveformEditor({
       </div>
     </div>
   );
-}
+});
 
 function fmtFull(sec: number): string {
   const m = Math.floor(sec / 60);

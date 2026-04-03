@@ -252,7 +252,6 @@ export default function EditPage() {
         <div className="mb-4">
           <WaveformEditor
             audioUrl={audioUrl}
-            pairs={pairs}
             segments={segments}
             onSegmentsChange={setSegments}
             onSplitAtTime={handleSplitAtTime}
