@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlignedPair } from "@/lib/types";
+import { AlignedPair, Segment } from "@/lib/types";
 
 interface Props {
   pairs: AlignedPair[];
   currentTime: number;
-  boundaries: number[];
+  segments: Segment[];
   onPairClick: (time: number) => void;
   onPairUpdate?: (index: number, updated: AlignedPair) => void;
   onPairAdd?: (afterIndex: number) => void;
@@ -39,14 +39,15 @@ const BG_COLORS = [
   "bg-indigo-500/10",
 ];
 
-function getDayIndex(time: number, boundaries: number[]): number {
-  for (let i = boundaries.length - 1; i >= 0; i--) {
-    if (time >= boundaries[i]) return i;
+/** Returns segment index that contains this time, or -1 if outside all segments */
+function getSegmentIndex(time: number, segments: Segment[]): number {
+  for (let i = 0; i < segments.length; i++) {
+    if (time >= segments[i].start && time < segments[i].end) return i;
   }
-  return 0;
+  return -1;
 }
 
-export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClick, onPairUpdate, onPairAdd, onPairDelete }: Props) {
+export default function ScriptPanel({ pairs, currentTime, segments, onPairClick, onPairUpdate, onPairAdd, onPairDelete }: Props) {
   const activeRef = useRef<HTMLDivElement>(null);
   const [editMode, setEditMode] = useState(false);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -107,7 +108,7 @@ export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClic
           <span className="text-[10px] text-gray-500">Double-click to edit</span>
         )}
         <button
-          onClick={() => exportText(pairs, boundaries)}
+          onClick={() => exportText(pairs, segments)}
           className="px-3 py-1 rounded text-xs font-medium transition bg-gray-800 text-gray-400 hover:bg-gray-700 ml-auto"
         >
           Export Text
@@ -116,18 +117,20 @@ export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClic
       <div className="h-80 overflow-y-auto space-y-1 p-3 bg-gray-900 rounded-lg">
         {pairs.map((pair, idx) => {
           const isActive = idx === activePairIdx;
-          const dayIdx = getDayIndex(pair.start, boundaries);
-          const colorClass = REGION_COLORS[dayIdx % REGION_COLORS.length];
-          const bgClass = BG_COLORS[dayIdx % BG_COLORS.length];
+          const segIdx = getSegmentIndex(pair.start, segments);
+          const isExcluded = segIdx === -1;
+          const colorClass = isExcluded ? "border-l-gray-700" : REGION_COLORS[segIdx % REGION_COLORS.length];
+          const bgClass = isExcluded ? "bg-gray-800/30" : BG_COLORS[segIdx % BG_COLORS.length];
           const isEditing = editingIdx === idx;
 
-          const isNewDay = idx === 0 || getDayIndex(pair.start, boundaries) !== getDayIndex(pairs[idx - 1].start, boundaries);
+          const prevSegIdx = idx > 0 ? getSegmentIndex(pairs[idx - 1].start, segments) : -2;
+          const isNewDay = !isExcluded && (idx === 0 || segIdx !== prevSegIdx);
 
           return (
             <div key={pair.no}>
               {isNewDay && (
                 <div className="text-xs font-bold text-gray-400 mt-3 mb-1">
-                  --- 課題{dayIdx + 1} ---
+                  --- 課題{segIdx + 1} ---
                 </div>
               )}
               {isEditing ? (
@@ -178,12 +181,16 @@ export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClic
                   >
                     <div className="text-xs text-gray-500 mb-0.5">
                       {formatTime(pair.start)} - {formatTime(pair.end)}
+                      {isExcluded && <span className="ml-1 text-gray-600">(除外)</span>}
                     </div>
-                    <div className={`text-sm ${isActive ? "text-white font-medium" : "text-gray-300"}`}>
+                    <div className={`text-sm ${
+                      isExcluded ? "text-gray-600 line-through" :
+                      isActive ? "text-white font-medium" : "text-gray-300"
+                    }`}>
                       {pair.en}
                     </div>
                     {pair.ja && (
-                      <div className="text-xs text-gray-500 mt-0.5">{pair.ja}</div>
+                      <div className={`text-xs mt-0.5 ${isExcluded ? "text-gray-700 line-through" : "text-gray-500"}`}>{pair.ja}</div>
                     )}
                   </div>
                   {editMode && (
@@ -210,21 +217,24 @@ export default function ScriptPanel({ pairs, currentTime, boundaries, onPairClic
   );
 }
 
-function exportText(pairs: AlignedPair[], boundaries: number[]) {
+function exportText(pairs: AlignedPair[], segments: Segment[]) {
   const lines: string[] = [];
-  let currentDay = -1;
+  let currentSegIdx = -1;
+  let taskNum = 0;
   for (const pair of pairs) {
-    const dayIdx = getDayIndex(pair.start, boundaries);
-    if (dayIdx !== currentDay) {
-      if (currentDay !== -1) {
-        // Add blank lines between sections (matching reference format)
+    const segIdx = getSegmentIndex(pair.start, segments);
+    if (segIdx === -1) continue; // Skip excluded pairs
+    if (segIdx !== currentSegIdx) {
+      if (currentSegIdx !== -1) {
         lines.push("", "", "", "", "", "", "");
       }
-      currentDay = dayIdx;
-      const startMin = Math.floor(boundaries[dayIdx] / 60);
-      const startSec = Math.floor(boundaries[dayIdx] % 60);
+      currentSegIdx = segIdx;
+      taskNum++;
+      const seg = segments[segIdx];
+      const startMin = Math.floor(seg.start / 60);
+      const startSec = Math.floor(seg.start % 60);
       const timeStr = `${String(startMin).padStart(2, "0")}:${String(startSec).padStart(2, "0")}`;
-      lines.push(`課題${dayIdx + 1} Audio`);
+      lines.push(`課題${taskNum} Audio`);
       lines.push(`${timeStr}〜`);
     }
     lines.push(pair.en);

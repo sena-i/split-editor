@@ -349,7 +349,7 @@ export default function EditPage() {
         <ScriptPanel
           pairs={pairs}
           currentTime={currentTime}
-          boundaries={segments.map((s) => s.start)}
+          segments={segments}
           onPairClick={handlePairClick}
           onPairUpdate={handlePairUpdate}
           onPairAdd={handlePairAdd}
