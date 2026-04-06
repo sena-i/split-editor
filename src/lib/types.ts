@@ -25,6 +25,7 @@ export interface SeriesDoc {
   audioUrl: string;
   pairs: AlignedPair[];
   segments: Segment[];
+  sentToKanafuri: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

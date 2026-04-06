@@ -40,7 +40,7 @@ export default function Home() {
   };
 
   const filtered = seriesList.filter((s) => {
-    if ((s as any).sentToKanafuri) return false;
+    if (s.sentToKanafuri) return false;
     if (filterStatus !== "all" && s.status !== filterStatus) return false;
     if (filterAssignee !== "all" && s.assignee !== filterAssignee) return false;
     return true;

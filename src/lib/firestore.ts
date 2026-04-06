@@ -24,6 +24,7 @@ function docToSeries(id: string, data: any): SeriesDoc {
     audioUrl: data.audioUrl ?? "",
     pairs: data.pairs ?? [],
     segments: data.segments ?? [],
+    sentToKanafuri: data.sentToKanafuri ?? false,
     createdAt: toDate(data.createdAt),
     updatedAt: toDate(data.updatedAt),
   };
