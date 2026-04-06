@@ -7,6 +7,7 @@ import WaveformEditor from "@/components/WaveformEditor";
 import ScriptPanel from "@/components/ScriptPanel";
 import { getSeries, updateSeries } from "@/lib/firestore";
 import { AlignedPair, Segment, SeriesDoc, SeriesStatus } from "@/lib/types";
+import { syncToKanafuri } from "@/lib/kanafuri-sync";
 
 const STATUS_OPTIONS: { value: SeriesStatus; label: string; cls: string }[] = [
   { value: "pending", label: "未着手", cls: "bg-gray-700" },
@@ -26,6 +27,7 @@ export default function EditPage() {
   const [selectedSegment, setSelectedSegment] = useState<number | null>(null);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<SeriesStatus>("pending");
   const [assignee, setAssignee] = useState("");
@@ -200,6 +202,19 @@ export default function EditPage() {
     setExporting(false);
   };
 
+  const handleSyncToKanafuri = async () => {
+    if (!id || !series) return;
+    if (!confirm("カナフリにスクリプトと音声を送信しますか？")) return;
+    setSyncing(true);
+    try {
+      await syncToKanafuri(id, series.title, pairs, segments, audioUrl);
+      alert("カナフリに送信しました");
+    } catch (err) {
+      alert("送信エラー: " + err);
+    }
+    setSyncing(false);
+  };
+
   if (!series) {
     return <div className="flex items-center justify-center h-screen text-gray-400">Loading...</div>;
   }
@@ -318,6 +333,10 @@ export default function EditPage() {
                 <button onClick={handleExport} disabled={exporting || !audioBuffer}
                   className="px-3 py-1 bg-purple-700 hover:bg-purple-600 disabled:opacity-50 rounded text-xs font-medium transition">
                   {exporting ? "..." : "Export MP3"}
+                </button>
+                <button onClick={handleSyncToKanafuri} disabled={syncing}
+                  className="px-3 py-1 bg-teal-700 hover:bg-teal-600 disabled:opacity-50 rounded text-xs font-medium transition">
+                  {syncing ? "送信中..." : "カナフリに送る"}
                 </button>
               </div>
             </div>
