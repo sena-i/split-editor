@@ -34,6 +34,40 @@ export default function EditPage() {
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Refs for current state (used by undo and auto-save)
+  const pairsRef = useRef(pairs);
+  pairsRef.current = pairs;
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+
+  // Unified undo history
+  type Snapshot = { pairs: AlignedPair[]; segments: Segment[] };
+  const historyRef = useRef<Snapshot[]>([]);
+  const pushUndo = useCallback(() => {
+    historyRef.current = [...historyRef.current.slice(-29), { pairs: pairsRef.current, segments: segmentsRef.current }];
+  }, []);
+  const handleUndo = useCallback(() => {
+    const h = historyRef.current;
+    if (h.length === 0) return;
+    const prev = h[h.length - 1];
+    historyRef.current = h.slice(0, -1);
+    setPairs(prev.pairs);
+    setSegments(prev.segments);
+  }, []);
+
+  // Ctrl+Z listener
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [handleUndo]);
+
   // Load series from Firestore
   useEffect(() => {
     if (!id) return;
@@ -59,12 +93,6 @@ export default function EditPage() {
     }, 2000);
   }, [id]);
 
-  // Track changes for auto-save
-  const pairsRef = useRef(pairs);
-  pairsRef.current = pairs;
-  const segmentsRef = useRef(segments);
-  segmentsRef.current = segments;
-
   useEffect(() => {
     if (series) scheduleAutoSave(pairsRef.current, segmentsRef.current);
   }, [pairs, segments, series, scheduleAutoSave]);
@@ -74,6 +102,7 @@ export default function EditPage() {
   }, [audioDuration]);
 
   const handlePairUpdate = useCallback((index: number, updated: AlignedPair) => {
+    pushUndo();
     setPairs((prev) => {
       const next = [...prev];
       next[index] = updated;
@@ -82,6 +111,7 @@ export default function EditPage() {
   }, []);
 
   const handlePairAdd = useCallback((afterIndex: number) => {
+    pushUndo();
     setPairs((prev) => {
       const ref = prev[afterIndex];
       const newPair: AlignedPair = {
@@ -99,6 +129,7 @@ export default function EditPage() {
   }, []);
 
   const handlePairDelete = useCallback((index: number) => {
+    pushUndo();
     setPairs((prev) => {
       if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== index);
@@ -107,10 +138,12 @@ export default function EditPage() {
   }, []);
 
   const handlePairsReorder = useCallback((newPairs: AlignedPair[]) => {
+    pushUndo();
     setPairs(newPairs);
-  }, []);
+  }, [pushUndo]);
 
   const handleSplitAtTime = useCallback((time: number) => {
+    pushUndo();
     setSegments((prev) => {
       const idx = prev.findIndex((s) => time > s.start + 0.5 && time < s.end - 0.5);
       if (idx !== -1) {
@@ -132,6 +165,7 @@ export default function EditPage() {
   }, [audioDuration]);
 
   const handleCutRange = useCallback((cutStart: number, cutEnd: number) => {
+    pushUndo();
     setSegments((prev) => {
       const maxGroup = prev.reduce((m, s) => Math.max(m, s.group ?? 0), 0);
       let nextGroup = maxGroup + 1;
@@ -147,11 +181,13 @@ export default function EditPage() {
   }, []);
 
   const handleRemoveSegment = useCallback((idx: number) => {
+    pushUndo();
     setSegments((prev) => prev.filter((_, i) => i !== idx));
     setSelectedSegment(null);
-  }, []);
+  }, [pushUndo]);
 
   const handleMergeSegment = useCallback((idx: number) => {
+    pushUndo();
     setSegments((prev) => {
       if (idx < 0 || idx >= prev.length - 1) return prev;
       const a = prev[idx];
