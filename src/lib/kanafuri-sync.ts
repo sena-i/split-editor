@@ -77,7 +77,7 @@ export async function syncToKanafuri(
   const db = getDb();
   const storage = getStorageInstance();
 
-  const projectId = seriesId; // same ID
+  const projectId = `proj_${seriesId}`;
   const sectionId = `section_${seriesId}`;
 
   // 1. Create/update project
