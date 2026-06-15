@@ -14,15 +14,22 @@ import { createReadStream } from "fs";
 import crypto from "crypto";
 
 const OUTPUT_DIR = join(process.env.HOME, "Desktop/script/output");
-const CSV_PATH = join(process.env.HOME, "Downloads/シャドーイングアプリ課題選定シート - 本決定② (1).csv");
+const CSV_PATHS = [
+  join(process.env.HOME, "Downloads/シャドーイングアプリ課題選定シート - 本決定② (1).csv"),
+  join(process.env.HOME, "Downloads/シャドーイングアプリ課題選定シート - 本決定② 再処理分.csv"),
+  join(process.env.HOME, "Downloads/シャドーイングアプリ課題選定シート - 本決定③.csv"),
+];
 const PROJECT_ID = "starlit-system-465107-g7";
 const BUCKET = "starlit-system-465107-g7.firebasestorage.app";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const CLEAN = args.includes("--clean");
+const FORCE = args.includes("--force");
 const limitIdx = args.indexOf("--limit");
 const LIMIT = limitIdx !== -1 ? parseInt(args[limitIdx + 1]) : Infinity;
+const onlyIdx = args.indexOf("--only");
+const ONLY = onlyIdx !== -1 ? new Set(args[onlyIdx + 1].split(",")) : null;
 
 initializeApp({ projectId: PROJECT_ID, storageBucket: BUCKET });
 const db = getFirestore();
@@ -70,27 +77,35 @@ function parseCSV(text) {
 }
 
 async function loadCSV() {
-  const text = await readFile(CSV_PATH, "utf-8");
-  const rows = parseCSV(text);
-  const headers = rows[0];
-  const noIdx = headers.indexOf("No");
-  const assigneeIdx = headers.indexOf("担当者");
-  const statusIdx = headers.indexOf("ステータス");
-  // There are two "コンテンツタイトル" columns, use first one (index 8)
-  const titleIdx = headers.indexOf("コンテンツタイトル");
-  const speakerIdx = headers.indexOf("スピーカー");
-
   const map = new Map();
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const no = row[noIdx]?.trim();
-    if (!no) continue;
-    map.set(no, {
-      title: row[titleIdx]?.trim() || `Series ${no}`,
-      assignee: row[assigneeIdx]?.trim() || "",
-      csvStatus: row[statusIdx]?.trim() || "",
-      speaker: row[speakerIdx]?.trim() || "",
-    });
+  for (const csvPath of CSV_PATHS) {
+    let text;
+    try {
+      text = await readFile(csvPath, "utf-8");
+    } catch {
+      console.log(`  CSV not found: ${csvPath}`);
+      continue;
+    }
+    const rows = parseCSV(text);
+    const headers = rows[0];
+    const noIdx = headers.indexOf("No");
+    const assigneeIdx = headers.indexOf("担当者");
+    const statusIdx = headers.indexOf("ステータス");
+    const titleIdx = headers.indexOf("コンテンツタイトル");
+    const speakerIdx = headers.indexOf("スピーカー");
+
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      const no = row[noIdx]?.trim();
+      if (!no) continue;
+      if (map.has(no)) continue; // skip duplicates
+      map.set(no, {
+        title: row[titleIdx]?.trim() || `Series ${no}`,
+        assignee: row[assigneeIdx]?.trim() || "",
+        csvStatus: row[statusIdx]?.trim() || "",
+        speaker: row[speakerIdx]?.trim() || "",
+      });
+    }
   }
   return map;
 }
@@ -115,8 +130,8 @@ async function main() {
   const dirs = (await readdir(OUTPUT_DIR)).sort((a, b) => parseInt(a) - parseInt(b));
   const csvNos = new Set(csvData.keys());
 
-  // Filter: only dirs that are in the CSV
-  const targetDirs = dirs.filter((d) => csvNos.has(d));
+  // Filter: only dirs that are in the CSV (and --only if specified)
+  const targetDirs = dirs.filter((d) => csvNos.has(d) && (!ONLY || ONLY.has(d)));
   console.log(`output/ folders matching CSV: ${targetDirs.length}`);
 
   let uploaded = 0;
@@ -142,10 +157,10 @@ async function main() {
     }
 
     // Check if already exists
-    if (!CLEAN) {
+    if (!CLEAN && !FORCE) {
       const existing = await db.collection("series").doc(dir).get();
       if (existing.exists) {
-        console.log(`  SKIP ${dir} - already exists`);
+        console.log(`  SKIP ${dir} - already exists (use --force to overwrite)`);
         skipped++;
         continue;
       }
